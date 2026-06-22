@@ -201,17 +201,7 @@ function toEmpresa(e: any) {
 // ── FULL DATA LOAD ──
 
 async function fetchAllRaw(): Promise<PetroMapiData> {
-  const [
-    { data: empresas },
-    { data: personales },
-    { data: vehiculos },
-    { data: conductores },
-    { data: rutas },
-    { data: monitoreos },
-    { data: consumos },
-    { data: incidencias },
-    { data: mantenimientos },
-  ] = await Promise.all([
+  const responses = await Promise.allSettled([
     supabase.from('empresa').select('*'),
     supabase.from('personal').select('*'),
     supabase.from('vehiculo').select('*'),
@@ -222,6 +212,22 @@ async function fetchAllRaw(): Promise<PetroMapiData> {
     supabase.from('incidencia').select('*'),
     supabase.from('mantenimiento').select('*'),
   ]);
+
+  const extract = (r: any) => (r.status === 'fulfilled' ? r.value.data : null);
+  const empresas = extract(responses[0]);
+  const personales = extract(responses[1]);
+  const vehiculos = extract(responses[2]);
+  const conductores = extract(responses[3]);
+  const rutas = extract(responses[4]);
+  const monitoreos = extract(responses[5]);
+  const consumos = extract(responses[6]);
+  const incidencias = extract(responses[7]);
+  const mantenimientos = extract(responses[8]);
+
+  const anyData = empresas || personales || vehiculos || conductores || rutas || monitoreos || consumos || incidencias || mantenimientos;
+  if (!anyData) {
+    return getDB();
+  }
 
   const dbData: PetroMapiData = {
     empresas: (empresas || []).map(toEmpresa),
