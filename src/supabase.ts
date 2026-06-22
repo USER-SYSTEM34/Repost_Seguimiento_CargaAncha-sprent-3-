@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { PetroMapiData, ensureAdminAccs } from './db';
+import { PetroMapiData, ensureAdminAccs, getDB } from './db';
 import { Personal, Vehiculo, Monitoreo, Incidencia } from './types';
 
 const supabaseUrl =
@@ -353,24 +353,21 @@ export async function loginUser(
     // fallback a local
   }
 
-  // 2) Fallback a localStorage
+  // 2) Fallback a datos locales (seed data si Supabase está vacío)
   try {
-    const raw = localStorage.getItem('petromapi_db_state');
-    if (raw) {
-      const db = JSON.parse(raw);
-      const found = (db.personales || []).find(
-        (p: any) =>
-          (p.usuario || '').toLowerCase() === input ||
-          (p.correo || '').toLowerCase() === input
-      );
-      if (found) {
-        if (found.estado !== 1) return { user: null, error: 'Cuenta inactiva' };
-        if (found.contrasena !== password) return { user: null, error: 'Contraseña incorrecta' };
-        return { user: found, error: null };
-      }
+    const db = getDB();
+    const found = (db.personales || []).find(
+      (p: any) =>
+        (p.usuario || '').toLowerCase() === input ||
+        (p.correo || '').toLowerCase() === input
+    );
+    if (found) {
+      if (found.estado !== 1) return { user: null, error: 'Cuenta inactiva' };
+      if (found.contrasena !== password) return { user: null, error: 'Contraseña incorrecta' };
+      return { user: found, error: null };
     }
   } catch {
-    // ignorar errores de localStorage
+    // ignorar errores
   }
 
   return { user: null, error: 'Usuario no encontrado. Verifique conexión a Supabase o use datos locales.' };
