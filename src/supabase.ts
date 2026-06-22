@@ -327,29 +327,53 @@ async function pushAllData(data: PetroMapiData): Promise<void> {
   if (errors.length > 0) throw new Error(errors.join('; '));
 }
 
-// ── LOGIN ──
+// ── LOGIN (con fallback a localStorage) ──
 
 export async function loginUser(
   emailOrUser: string,
   password: string
 ): Promise<{ user: Personal | null; error: string | null }> {
-  // Buscar por email (el password_hash tiene texto plano en este proyecto)
-  const { data: personales, error } = await supabase
-    .from('personal')
-    .select('*')
-    .eq('email', emailOrUser.toLowerCase().trim());
-  if (error) return { user: null, error: error.message };
+  const input = emailOrUser.toLowerCase().trim();
 
-  const userRow = personales && personales.length > 0 ? personales[0] : null;
-  if (!userRow) return { user: null, error: 'Usuario no encontrado' };
-  if (userRow.activo !== true) return { user: null, error: 'Cuenta inactiva' };
-
-  // Comparar contraseña (texto plano en este proyecto)
-  if (userRow.password_hash !== password) {
-    return { user: null, error: 'Contraseña incorrecta' };
+  // 1) Intentar Supabase
+  try {
+    const { data: personales, error } = await supabase
+      .from('personal')
+      .select('*')
+      .eq('email', input);
+    if (!error) {
+      const userRow = personales && personales.length > 0 ? personales[0] : null;
+      if (userRow) {
+        if (userRow.activo !== true) return { user: null, error: 'Cuenta inactiva' };
+        if (userRow.password_hash !== password) return { user: null, error: 'Contraseña incorrecta' };
+        return { user: toPersonal(userRow), error: null };
+      }
+    }
+  } catch {
+    // fallback a local
   }
 
-  return { user: toPersonal(userRow), error: null };
+  // 2) Fallback a localStorage
+  try {
+    const raw = localStorage.getItem('petromapi_db_state');
+    if (raw) {
+      const db = JSON.parse(raw);
+      const found = (db.personales || []).find(
+        (p: any) =>
+          (p.usuario || '').toLowerCase() === input ||
+          (p.correo || '').toLowerCase() === input
+      );
+      if (found) {
+        if (found.estado !== 1) return { user: null, error: 'Cuenta inactiva' };
+        if (found.contrasena !== password) return { user: null, error: 'Contraseña incorrecta' };
+        return { user: found, error: null };
+      }
+    }
+  } catch {
+    // ignorar errores de localStorage
+  }
+
+  return { user: null, error: 'Usuario no encontrado. Verifique conexión a Supabase o use datos locales.' };
 }
 
 // ── PUBLIC API ──

@@ -55,6 +55,15 @@ const SEED_DATA: PetroMapiData = {
       estado: 1
     },
     {
+      id_personal: 10,
+      nombre_completo: 'Admin Petro Mapi',
+      usuario: 'admin@petromapi.com',
+      correo: 'admin@petromapi.com',
+      contrasena: 'petromapisac123',
+      rol: 'Administradores (Full Acceso)',
+      estado: 1
+    },
+    {
       id_personal: 2,
       nombre_completo: 'Ricardo Mendoza',
       usuario: 'RMendoza',
@@ -107,7 +116,11 @@ const SEED_DATA: PetroMapiData = {
     { id_personal: 3, id_modulo: 1 },
     { id_personal: 3, id_modulo: 2 },
     { id_personal: 5, id_modulo: 2 },
-    { id_personal: 5, id_modulo: 3 }
+    { id_personal: 5, id_modulo: 3 },
+    { id_personal: 10, id_modulo: 1 },
+    { id_personal: 10, id_modulo: 2 },
+    { id_personal: 10, id_modulo: 3 },
+    { id_personal: 10, id_modulo: 4 }
   ],
   conductores: [
     { id_conductor: 1, nombre: 'Ricardo', apellido: 'Castillo Mora', licencia: 'Q283726A', telefono: '938291029' },
@@ -215,9 +228,9 @@ export function ensureAdminAccs(dbData: PetroMapiData): { data: PetroMapiData; m
     }
   }
 
-  // Remove permissions associated with deleted administrator IDs (including legacy ID 10 duplicate)
+  // Remove permissions associated with deleted administrator IDs
   const beforePermsLength = permisosCopy.length;
-  permisosCopy = permisosCopy.filter(pm => pm.id_personal !== 10 && pm.id_personal !== 11 && pm.id_personal !== 12);
+  permisosCopy = permisosCopy.filter(pm => pm.id_personal !== 11 && pm.id_personal !== 12);
   if (permisosCopy.length !== beforePermsLength) {
     modified = true;
   }
