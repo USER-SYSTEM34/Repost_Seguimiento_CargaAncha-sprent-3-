@@ -1,13 +1,12 @@
-import { createClient, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
-import bcrypt from 'bcryptjs';
+import { createClient } from '@supabase/supabase-js';
 import { PetroMapiData, ensureAdminAccs } from './db';
 import { Personal, Vehiculo, Monitoreo, Incidencia } from './types';
 
 const supabaseUrl =
-  import.meta.env.VITE_SUPABASE_URL || 'https://somijzibukbgoedflina.supabase.co';
+  import.meta.env.VITE_SUPABASE_URL || 'https://kvevvdtmhcpbletazvwr.supabase.co';
 const supabaseAnonKey =
   import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  'sb_publishable_U3RL96IImYu6t9POkf1nsQ_cZy1jJoE';
+  'sb_publishable_Zb4OzqAXahYjKzTyu3vCUw_ki3VgKv-';
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { persistSession: false },
@@ -48,23 +47,27 @@ const ESTADO_MONITOREO_REVERSE: Record<string, string> = {
 
 // ── CONVERTERS: SQL row → App type ──
 
-function toPersonal(u: any): Personal {
+function toPersonal(p: any): Personal {
   return {
-    id_personal: u.id_usuario,
-    nombre_completo: u.nombre || '',
-    usuario: u.email,
-    correo: u.email,
-    contrasena: u.password_hash || '',
-    rol: ROL_MAP[u.rol] || u.rol || 'operador',
-    estado: u.activo === true || u.activo === 1 ? 1 : 0,
+    id_personal: p.id_personal,
+    nombre_completo: [p.nombre, p.apellido].filter(Boolean).join(' ') || '',
+    usuario: p.email,
+    correo: p.email,
+    contrasena: p.password_hash || '',
+    rol: ROL_MAP[p.rol] || p.rol || 'operador',
+    estado: p.activo === true || p.activo === 1 ? 1 : 0,
   };
 }
 
 function fromPersonal(p: Personal): any {
+  const nameParts = (p.nombre_completo || '').split(' ');
+  const nombre = nameParts[0] || '';
+  const apellido = nameParts.slice(1).join(' ') || '';
   return {
-    id_usuario: p.id_personal,
+    id_personal: p.id_personal,
     email: p.usuario,
-    nombre: p.nombre_completo,
+    nombre,
+    apellido,
     password_hash: p.contrasena,
     rol: ROL_REVERSE[p.rol] || p.rol || 'operador',
     activo: p.estado === 1,
@@ -133,7 +136,7 @@ function toIncidencia(i: any): Incidencia {
     tipo: i.tipo || '',
     descripcion: i.descripcion || '',
     fecha_hora: i.fecha || i.created_at,
-    reportado_por: typeof i.reportado_por === 'number' ? i.reportado_por : 0,
+    reportado_por: 0,
     estado_alerta: 'Pendiente',
   };
 }
@@ -145,7 +148,7 @@ function fromIncidencia(i: Incidencia): any {
     tipo: i.tipo,
     descripcion: i.descripcion,
     fecha: i.fecha_hora,
-    reportado_por: i.reportado_por.toString(),
+    reportado_por: '',
   };
 }
 
@@ -188,12 +191,22 @@ function toMantenimiento(m: any) {
   };
 }
 
+function toEmpresa(e: any) {
+  return {
+    id_empresa: e.id_empresa,
+    razon_social: e.razon_social || '',
+    ruc: e.ruc || '',
+    direccion: e.direccion || null,
+    telefono: e.telefono || null,
+  };
+}
+
 // ── FULL DATA LOAD ──
 
 async function fetchAllRaw(): Promise<PetroMapiData> {
   const [
     { data: empresas },
-    { data: usuarios },
+    { data: personales },
     { data: vehiculos },
     { data: conductores },
     { data: rutas },
@@ -203,7 +216,7 @@ async function fetchAllRaw(): Promise<PetroMapiData> {
     { data: mantenimientos },
   ] = await Promise.all([
     supabase.from('empresa').select('*'),
-    supabase.from('usuario').select('*'),
+    supabase.from('personal').select('*'),
     supabase.from('vehiculo').select('*'),
     supabase.from('conductor').select('*'),
     supabase.from('ruta').select('*'),
@@ -214,14 +227,8 @@ async function fetchAllRaw(): Promise<PetroMapiData> {
   ]);
 
   const dbData: PetroMapiData = {
-    empresas: (empresas || []).map((e: any) => ({
-      id_empresa: e.id_empresa,
-      razon_social: e.razon_social || '',
-      ruc: e.ruc || '',
-      direccion: e.direccion || null,
-      telefono: e.telefono || null,
-    })),
-    personales: (usuarios || []).map(toPersonal),
+    empresas: (empresas || []).map(toEmpresa),
+    personales: (personales || []).map(toPersonal),
     modulos: [
       { id_modulo: 1, nombre_modulo: 'Monitoreo en Vivo' },
       { id_modulo: 2, nombre_modulo: 'Administración de Flota y Reportes' },
@@ -303,13 +310,12 @@ async function pushAllData(data: PetroMapiData): Promise<void> {
     if (error) errors.push(`consumo: ${error.message}`);
   }
   for (const p of data.personales) {
-    const { error } = await supabase.from('usuario').upsert(fromPersonal(p));
-    if (error) errors.push(`usuario: ${error.message}`);
+    const { error } = await supabase.from('personal').upsert(fromPersonal(p));
+    if (error) errors.push(`personal: ${error.message}`);
   }
   for (const c of data.conductores || []) {
-    const id = (c as any).id_conductor;
     const { error } = await supabase.from('conductor').upsert({
-      id_conductor: id || undefined,
+      id_conductor: (c as any).id_conductor || undefined,
       nombre: c.nombre,
       apellido: c.apellido,
       licencia: c.licencia,
@@ -327,18 +333,21 @@ export async function loginUser(
   emailOrUser: string,
   password: string
 ): Promise<{ user: Personal | null; error: string | null }> {
-  const { data: usuarios, error } = await supabase
-    .from('usuario')
+  // Buscar por email (el password_hash tiene texto plano en este proyecto)
+  const { data: personales, error } = await supabase
+    .from('personal')
     .select('*')
-    .or(`email.eq.${emailOrUser.toLowerCase().trim()}`);
+    .eq('email', emailOrUser.toLowerCase().trim());
   if (error) return { user: null, error: error.message };
 
-  const userRow = usuarios && usuarios.length > 0 ? usuarios[0] : null;
+  const userRow = personales && personales.length > 0 ? personales[0] : null;
   if (!userRow) return { user: null, error: 'Usuario no encontrado' };
   if (userRow.activo !== true) return { user: null, error: 'Cuenta inactiva' };
 
-  const match = await bcrypt.compare(password, userRow.password_hash);
-  if (!match) return { user: null, error: 'Contraseña incorrecta' };
+  // Comparar contraseña (texto plano en este proyecto)
+  if (userRow.password_hash !== password) {
+    return { user: null, error: 'Contraseña incorrecta' };
+  }
 
   return { user: toPersonal(userRow), error: null };
 }
@@ -357,7 +366,7 @@ export function subscribeToRealtime(onData: (data: PetroMapiData) => void) {
   const channel = supabase
     .channel('petromapi_realtime_all')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'empresa' }, () => fetchAllRaw().then(onData).catch(console.warn))
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'usuario' }, () => fetchAllRaw().then(onData).catch(console.warn))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'personal' }, () => fetchAllRaw().then(onData).catch(console.warn))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'vehiculo' }, () => fetchAllRaw().then(onData).catch(console.warn))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'conductor' }, () => fetchAllRaw().then(onData).catch(console.warn))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ruta' }, () => fetchAllRaw().then(onData).catch(console.warn))
